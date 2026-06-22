@@ -18,6 +18,16 @@ export function getSupabase(): SupabaseClient {
   return supabaseInstance;
 }
 
+/** True when Supabase env vars are present (i.e. login + persistence are on). */
+export function isSupabaseConfigured(): boolean {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+}
+
+export type UserRole = "member" | "approver" | "admin";
+
 export const supabase = {
   from: (...args: Parameters<SupabaseClient["from"]>) =>
     getSupabase().from(...args),
