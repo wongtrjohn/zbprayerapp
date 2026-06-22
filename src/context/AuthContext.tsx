@@ -37,23 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<UserRole | null>(null);
   const [loading, setLoading] = useState(enabled);
 
-  // Make sure a profile row exists for this user (via a SECURITY DEFINER rpc),
-  // then read their role.
-  const loadRole = useCallback(async (u: User | null) => {
-    if (!u) {
-      setRole(null);
-      return;
-    }
-    const sb = getSupabase();
-    await sb.rpc("ensure_profile");
-    const { data } = await sb
-      .from("profiles")
-      .select("role")
-      .eq("id", u.id)
-      .maybeSingle();
-    setRole((data?.role as UserRole) ?? "member");
-  }, []);
-
+  // IMPORTANT: never call other Supabase methods (.rpc/.from) synchronously
+  // inside onAuthStateChange — that callback holds the gotrue auth lock, and a
+  // nested call that needs the same lock deadlocks the entire client (every
+  // query hangs forever). So here we ONLY do synchronous state updates, and
+  // load the role in a separate effect below, outside the lock.
   useEffect(() => {
     if (!enabled) {
       setLoading(false);
@@ -62,18 +50,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sb = getSupabase();
     let active = true;
 
-    sb.auth.getSession().then(async ({ data }) => {
+    sb.auth.getSession().then(({ data }) => {
       if (!active) return;
-      const u = data.session?.user ?? null;
-      setUser(u);
-      await loadRole(u);
+      setUser(data.session?.user ?? null);
       setLoading(false);
     });
 
-    const { data: sub } = sb.auth.onAuthStateChange(async (_event, session) => {
-      const u = session?.user ?? null;
-      setUser(u);
-      await loadRole(u);
+    const { data: sub } = sb.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
       setLoading(false);
     });
 
@@ -81,7 +65,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       active = false;
       sub.subscription.unsubscribe();
     };
-  }, [enabled, loadRole]);
+  }, [enabled]);
+
+  // Load the user's role whenever the signed-in user changes. This runs OUTSIDE
+  // the auth callback, so the Supabase calls don't deadlock the auth lock.
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    if (!enabled || !userId) {
+      setRole(null);
+      return;
+    }
+    let active = true;
+    (async () => {
+      const sb = getSupabase();
+      try {
+        await sb.rpc("ensure_profile");
+        const { data } = await sb
+          .from("profiles")
+          .select("role")
+          .eq("id", userId)
+          .maybeSingle();
+        if (active) setRole((data?.role as UserRole) ?? "member");
+      } catch {
+        if (active) setRole("member");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [enabled, userId]);
 
   const signInWithEmail = useCallback(async (email: string) => {
     const { error } = await getSupabase().auth.signInWithOtp({
