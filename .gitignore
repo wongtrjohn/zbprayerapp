@@ -27,6 +27,10 @@
 # debug
 dev.log
 npm-debug.log*
+
+# local dev tooling (preview launch config)
+.claude/
+test-session.json
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
