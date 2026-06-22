@@ -57,10 +57,11 @@ export default function AddPrayerRequestForm() {
       <div className="rounded-xl border border-green-200 bg-green-50 p-8 text-center dark:border-green-800 dark:bg-green-900/20">
         <div className="text-4xl mb-3">🕯️</div>
         <h3 className="text-lg font-semibold text-green-800 dark:text-green-200">
-          Prayer request added!
+          Prayer request submitted!
         </h3>
         <p className="mt-1 text-sm text-green-600 dark:text-green-400">
-          Your request is now lighting a candle in its bubble.
+          An approver will review it shortly. Once approved, it lights a candle
+          in its bubble for the whole church.
         </p>
       </div>
     );

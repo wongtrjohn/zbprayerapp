@@ -1,9 +1,17 @@
 -- ZBPrayerApp — initial Supabase schema (idempotent — safe to re-run)
 -- Run in Supabase SQL Editor or via: supabase db push
 --
--- Model: anyone can READ prayer requests and tap "I prayed" (count goes up via
--- a SECURITY DEFINER rpc). Only ADMINS can create/edit/delete prayer points.
--- Admin status lives in public.profiles.is_admin.
+-- Roles & moderation model
+-- ------------------------
+-- Three roles live in public.profiles.role:
+--   'member'   (default) — can submit prayer requests; submissions start PENDING
+--   'approver'            — can see pending requests and approve/reject them
+--   'admin'               — approver rights + can delete / manage everything
+--
+-- prayer_requests.status is 'pending' | 'approved' | 'rejected'.
+--   * The public ONLY ever sees 'approved' rows and can only pray for those.
+--   * Anyone may submit a request, but only as 'pending' — you cannot self-publish.
+--   * Approvers/admins flip status to 'approved' (that is the "approve" action).
 
 -- ---------------------------------------------------------------------------
 -- Tables
@@ -21,6 +29,11 @@ create table if not exists public.prayer_requests (
   featured boolean not null default false,
   prayer_count integer not null default 0 check (prayer_count >= 0),
   week_of date,
+  -- moderation
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  submitted_by uuid references auth.users (id) on delete set null,
+  reviewed_by uuid references auth.users (id) on delete set null,
+  reviewed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -32,11 +45,11 @@ create table if not exists public.prayer_events (
   created_at timestamptz not null default now()
 );
 
--- One row per auth user; is_admin gates write access to prayer points.
+-- One row per auth user; `role` gates submit / approve / admin rights.
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   display_name text,
-  is_admin boolean not null default false,
+  role text not null default 'member' check (role in ('member', 'approver', 'admin')),
   created_at timestamptz not null default now()
 );
 
@@ -49,6 +62,9 @@ create index if not exists prayer_requests_category_idx
 
 create index if not exists prayer_requests_subcategory_idx
   on public.prayer_requests (subcategory);
+
+create index if not exists prayer_requests_status_idx
+  on public.prayer_requests (status);
 
 create index if not exists prayer_requests_featured_idx
   on public.prayer_requests (featured) where featured = true;
@@ -105,22 +121,30 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Helper: is the current user an admin?
-create or replace function public.is_admin()
+-- Role helpers (SECURITY DEFINER so RLS on profiles doesn't block them).
+create or replace function public.is_approver()
 returns boolean
-language sql
-stable
-security definer
-set search_path = public
+language sql stable security definer set search_path = public
 as $$
   select coalesce(
-    (select is_admin from public.profiles where id = auth.uid()),
+    (select role in ('approver', 'admin') from public.profiles where id = auth.uid()),
+    false
+  );
+$$;
+
+create or replace function public.is_admin()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select coalesce(
+    (select role = 'admin' from public.profiles where id = auth.uid()),
     false
   );
 $$;
 
 -- ---------------------------------------------------------------------------
--- RPC: atomically increment prayer count (+ event log). Anyone may call this.
+-- RPC: atomically increment prayer count (+ event log).
+-- Only works on APPROVED requests, so pending items can't be prayed for.
 -- ---------------------------------------------------------------------------
 
 create or replace function public.increment_prayer_count(request_id uuid)
@@ -134,17 +158,40 @@ declare
 begin
   update public.prayer_requests
   set prayer_count = prayer_count + 1
-  where id = request_id
+  where id = request_id and status = 'approved'
   returning prayer_count into new_count;
 
   if new_count is null then
-    raise exception 'Prayer request not found: %', request_id;
+    raise exception 'Prayer request not found or not approved: %', request_id;
   end if;
 
   insert into public.prayer_events (prayer_request_id, user_id)
   values (request_id, auth.uid());
 
   return new_count;
+end;
+$$;
+
+-- RPC: approve / reject a request (the "approve" action for approvers).
+create or replace function public.set_prayer_status(request_id uuid, new_status text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_approver() then
+    raise exception 'Not authorised to review prayer requests';
+  end if;
+  if new_status not in ('pending', 'approved', 'rejected') then
+    raise exception 'Invalid status: %', new_status;
+  end if;
+
+  update public.prayer_requests
+  set status = new_status,
+      reviewed_by = auth.uid(),
+      reviewed_at = now()
+  where id = request_id;
 end;
 $$;
 
@@ -156,29 +203,36 @@ alter table public.prayer_requests enable row level security;
 alter table public.prayer_events enable row level security;
 alter table public.profiles enable row level security;
 
--- prayer_requests: public read, admin-only write.
-drop policy if exists "Anyone can read prayer requests" on public.prayer_requests;
-create policy "Anyone can read prayer requests"
+-- prayer_requests: public sees approved only; approvers see everything.
+drop policy if exists "Public can read approved requests" on public.prayer_requests;
+create policy "Public can read approved requests"
   on public.prayer_requests for select
-  using (true);
+  using (status = 'approved');
 
-drop policy if exists "Admins can insert prayer requests" on public.prayer_requests;
-create policy "Admins can insert prayer requests"
+drop policy if exists "Approvers can read all requests" on public.prayer_requests;
+create policy "Approvers can read all requests"
+  on public.prayer_requests for select
+  using (public.is_approver());
+
+-- Anyone may submit, but only as 'pending' (can't self-publish).
+drop policy if exists "Anyone can submit pending requests" on public.prayer_requests;
+create policy "Anyone can submit pending requests"
   on public.prayer_requests for insert
-  with check (public.is_admin());
+  with check (status = 'pending');
 
-drop policy if exists "Admins can update prayer requests" on public.prayer_requests;
-create policy "Admins can update prayer requests"
+-- Approvers can edit / approve; admins can delete.
+drop policy if exists "Approvers can update requests" on public.prayer_requests;
+create policy "Approvers can update requests"
   on public.prayer_requests for update
-  using (public.is_admin())
-  with check (public.is_admin());
+  using (public.is_approver())
+  with check (public.is_approver());
 
-drop policy if exists "Admins can delete prayer requests" on public.prayer_requests;
-create policy "Admins can delete prayer requests"
+drop policy if exists "Admins can delete requests" on public.prayer_requests;
+create policy "Admins can delete requests"
   on public.prayer_requests for delete
   using (public.is_admin());
 
--- prayer_events: readable, but only written via the rpc (no direct inserts).
+-- prayer_events: readable, written only via the rpc (no direct inserts).
 drop policy if exists "Anyone can read prayer events" on public.prayer_events;
 create policy "Anyone can read prayer events"
   on public.prayer_events for select
@@ -189,23 +243,32 @@ create policy "No direct prayer event inserts"
   on public.prayer_events for insert
   with check (false);
 
--- profiles: a user can read/update only their own row.
+-- profiles: a user reads/updates only their own row. Note: a member cannot
+-- change their own `role` to escalate — role changes are done by an admin via
+-- the dashboard or the service-role key (see below).
 drop policy if exists "Users can read own profile" on public.profiles;
 create policy "Users can read own profile"
   on public.profiles for select
   using (auth.uid() = id);
 
-drop policy if exists "Users can update own profile" on public.profiles;
-create policy "Users can update own profile"
+drop policy if exists "Users can update own display name" on public.profiles;
+create policy "Users can update own display name"
   on public.profiles for update
   using (auth.uid() = id)
-  with check (auth.uid() = id);
+  with check (auth.uid() = id and role = (select role from public.profiles where id = auth.uid()));
 
 grant execute on function public.increment_prayer_count(uuid) to anon, authenticated;
+grant execute on function public.set_prayer_status(uuid, text) to authenticated;
+grant execute on function public.is_approver() to anon, authenticated;
 grant execute on function public.is_admin() to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
--- Make yourself an admin (run once, after signing in at least once):
---   update public.profiles set is_admin = true
+-- Grant approve / admin rights (run in SQL Editor after the person has signed
+-- in at least once so their profile row exists):
+--
+--   update public.profiles set role = 'approver'
+--   where id = (select id from auth.users where email = 'approver@example.com');
+--
+--   update public.profiles set role = 'admin'
 --   where id = (select id from auth.users where email = 'you@example.com');
 -- ---------------------------------------------------------------------------

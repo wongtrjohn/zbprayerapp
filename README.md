@@ -88,38 +88,60 @@ from that file, so nothing else needs to change.
 
 4. Restart `npm run dev`. The app now reads/writes the database.
 
-**Access model (built into the RLS policies):**
-- Anyone (even signed-out) can view prayers and tap **"I prayed"** — the count
-  increments through a `SECURITY DEFINER` function, so no write access is needed.
-- Only **admins** can add/edit/delete prayer points.
+**Roles & approval model (built into the RLS policies):**
+- **Everyone** (even signed-out) can view *approved* prayers and tap **"I prayed"**
+  — the count increments via a `SECURITY DEFINER` function, no write access needed.
+- **Anyone** can *submit* a prayer request, but it is saved as **`pending`** and
+  is invisible to the public until reviewed.
+- **Approvers** (`role = 'approver'`) see the pending queue and **approve/reject**
+  (the approve action flips `status` to `approved` via the `set_prayer_status` rpc).
+- **Admins** (`role = 'admin'`) have approver rights plus delete/manage.
+
+So the add-request form feeds a **moderation queue** — exactly the "grant certain
+users the right to approve requests" model.
 
 ---
 
-## Authentication (public + admin login)
+## Authentication & granting approval rights
 
-The schema is already wired for this; the login UI is the one remaining piece to
-build when you're ready.
+The schema is fully wired for this; an in-app login + review page is the one
+remaining piece to build when you're ready.
 
 1. **Supabase → Authentication → Providers**: enable **Email** (magic link). To
-   add Google later, enable the **Google** provider and paste in an OAuth client
+   add Google later, enable the **Google** provider and paste an OAuth client
    ID/secret from Google Cloud Console.
-2. A `profiles` row is created automatically on sign-up (trigger in the schema),
-   with `is_admin = false`.
-3. **Make yourself an admin** — after signing in once, run in the SQL Editor:
+2. A `profiles` row (with `role = 'member'`) is created automatically on sign-up
+   (trigger in the schema).
+3. **Grant approve / admin rights** — after the person has signed in once, run in
+   the SQL Editor:
 
    ```sql
-   update public.profiles set is_admin = true
+   -- let someone approve submissions
+   update public.profiles set role = 'approver'
+   where id = (select id from auth.users where email = 'approver@example.com');
+
+   -- full admin (approve + delete + manage)
+   update public.profiles set role = 'admin'
    where id = (select id from auth.users where email = 'you@example.com');
    ```
 
-4. To build the login UI, add an `/login` page that calls
-   `supabase.auth.signInWithOtp({ email })` (magic link) or
-   `supabase.auth.signInWithOAuth({ provider: 'google' })`, and gate the
-   `/add-request` page behind `supabase.auth.getUser()` + `profiles.is_admin`.
-   The `supabase.auth` accessor is already exported from `src/lib/supabase.ts`.
+   Members cannot escalate their own role (RLS prevents it); only an admin/the
+   service-role key can change roles.
 
-Until then, with Supabase **off** the add-request form works locally for anyone;
-with Supabase **on**, inserts are rejected for non-admins by RLS.
+**Approving requests today (no UI needed):** in the Supabase dashboard open
+**Table Editor → prayer_requests**, filter `status = pending`, and set a row's
+`status` to `approved`. It appears on the site immediately.
+
+**Approving in-app later:** build a `/login` page calling
+`supabase.auth.signInWithOtp({ email })` (or `signInWithOAuth({ provider: 'google' })`),
+and an `/admin/review` page that lists `status = 'pending'` rows and calls
+`supabase.rpc('set_prayer_status', { request_id, new_status: 'approved' })`. Gate
+both with `supabase.auth.getUser()` + the `is_approver()` check. The `supabase.auth`
+accessor is already exported from `src/lib/supabase.ts`.
+
+With Supabase **off** (local dev), the form works for anyone and items show
+immediately — there's no queue without a backend. With Supabase **on**,
+submissions correctly land in the pending queue.
 
 ---
 

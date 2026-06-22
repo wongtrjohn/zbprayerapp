@@ -1,8 +1,9 @@
 -- ZBPrayerApp — seed data (mirrors src/data/prayerData.ts)
 -- Run AFTER 00001_initial_schema.sql. Safe to re-run (upserts on title+week_of).
+-- All seeded rows are 'approved' so they show immediately.
 
 insert into public.prayer_requests
-  (title, category, subcategory, description, prayer_points, source, source_url, featured, prayer_count, week_of)
+  (title, category, subcategory, description, prayer_points, source, source_url, featured, prayer_count, week_of, status)
 values
   (
     'J and SA — Mindanao earthquake',
@@ -14,7 +15,7 @@ values
       'Strength for the relief and rebuilding effort in the region'
     ],
     'Zion Bishan Bulletin', 'https://www.zionbishan.org.sg/services/english/bulletins/latest/',
-    true, 86, date '2026-06-15'
+    true, 86, date '2026-06-15', 'approved'
   ),
   (
     'Our pastors and ministry leaders',
@@ -25,7 +26,7 @@ values
       'Unity and clear direction among the elders and deacons',
       'Renewed strength for leaders serving across the ministries'
     ],
-    'Zion Bishan Bulletin', null, false, 142, date '2026-06-15'
+    'Zion Bishan Bulletin', null, false, 142, date '2026-06-15', 'approved'
   ),
   (
     'ZBCS Camp in Batam',
@@ -37,7 +38,7 @@ values
       'Real encounters with God and lasting spiritual fruit'
     ],
     'Zion Bishan Bulletin', 'https://www.zionbishan.org.sg/services/english/bulletins/latest/',
-    true, 97, date '2026-06-15'
+    true, 97, date '2026-06-15', 'approved'
   ),
   (
     'Tuition Ministry',
@@ -48,7 +49,7 @@ values
       'Students to grow in confidence, character and faith',
       'Open doors into the families being served'
     ],
-    'Zion Bishan Ministries', null, false, 54, null
+    'Zion Bishan Ministries', null, false, 54, null, 'approved'
   ),
   (
     'Terusan Ministry',
@@ -59,7 +60,7 @@ values
       'Fruitful outreach and discipleship',
       'Provision of resources and volunteers'
     ],
-    'Zion Bishan Ministries', null, false, 38, null
+    'Zion Bishan Ministries', null, false, 38, null, 'approved'
   ),
   (
     'SMO mission partner — Bacolod City',
@@ -71,6 +72,6 @@ values
       'Strength and continued gospel witness for the SMO team'
     ],
     'Zion Bishan Bulletin', 'https://www.zionbishan.org.sg/services/english/bulletins/latest/',
-    true, 73, date '2026-06-15'
+    true, 73, date '2026-06-15', 'approved'
   )
 on conflict (title, week_of) do nothing;

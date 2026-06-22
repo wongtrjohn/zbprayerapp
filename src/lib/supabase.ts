@@ -42,5 +42,9 @@ export type PrayerRequestRow = {
   featured: boolean;
   prayer_count: number;
   week_of: string | null;
+  status: "pending" | "approved" | "rejected";
+  submitted_by: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
   created_at: string;
 };

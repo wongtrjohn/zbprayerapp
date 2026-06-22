@@ -45,9 +45,12 @@ export async function fetchPrayerRequests(): Promise<{
     };
   }
 
+  // Public feed: approved requests only. (Approvers see the full queue via the
+  // Supabase dashboard, or a future in-app review page.) RLS also enforces this.
   const { data, error } = await supabase
     .from("prayer_requests")
     .select("*")
+    .eq("status", "approved")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -93,6 +96,7 @@ export async function insertPrayerRequest(
       source_url: request.sourceUrl || null,
       featured: false,
       prayer_count: 0,
+      status: "pending", // goes into the moderation queue until an approver publishes it
     })
     .select()
     .single();
