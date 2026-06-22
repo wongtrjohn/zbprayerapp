@@ -1,0 +1,41 @@
+name: Weekly bulletin import
+
+# Reliable weekly trigger for the bulletin auto-import, independent of the
+# Vercel plan's cron limits. It simply calls the deployed /api/bulletin endpoint
+# with the shared secret. The endpoint does the scraping + upsert (as pending).
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   APP_URL                 e.g. https://zbprayerapp.vercel.app   (no trailing slash)
+#   BULLETIN_REFRESH_SECRET same value as the Vercel env var
+
+on:
+  schedule:
+    # Mondays 01:00 UTC (09:00 Singapore). Matches vercel.json.
+    - cron: "0 1 * * 1"
+  workflow_dispatch: {} # lets you run it on demand from the Actions tab
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/bulletin
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          BULLETIN_REFRESH_SECRET: ${{ secrets.BULLETIN_REFRESH_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$BULLETIN_REFRESH_SECRET" ]; then
+            echo "::error::Missing APP_URL or BULLETIN_REFRESH_SECRET repository secret."
+            exit 1
+          fi
+          echo "Calling ${APP_URL}/api/bulletin"
+          response=$(curl -sS -w $'\n%{http_code}' \
+            -H "Authorization: Bearer ${BULLETIN_REFRESH_SECRET}" \
+            "${APP_URL}/api/bulletin")
+          status=$(printf '%s\n' "$response" | tail -n1)
+          body=$(printf '%s\n' "$response" | sed '$d')
+          echo "HTTP ${status}"
+          echo "${body}"
+          if [ "$status" != "200" ]; then
+            echo "::error::Import failed with HTTP ${status}"
+            exit 1
+          fi
