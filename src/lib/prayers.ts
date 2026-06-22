@@ -1,6 +1,11 @@
 import { supabase, type PrayerRequestRow } from "@/lib/supabase";
 import { curatedPrayers } from "@/data/prayerData";
-import type { CategorySlug, NewPrayerRequest, PrayerRequest } from "@/types";
+import type {
+  CategorySlug,
+  NewPrayerRequest,
+  PrayerCardEdits,
+  PrayerRequest,
+} from "@/types";
 
 /**
  * When Supabase env vars are absent we run entirely on the curated dataset.
@@ -103,6 +108,30 @@ export async function insertPrayerRequest(
 
   if (error) throw error;
   return null;
+}
+
+/**
+ * Persist an edit to a prayer request. With Supabase this writes to the DB and
+ * is enforced by RLS — only approvers/admins are allowed to update (the
+ * "Approvers can update requests" policy). Without Supabase it is a no-op and
+ * the change stays local (dev/demo mode).
+ */
+export async function updatePrayerRequest(
+  prayerId: string,
+  edits: PrayerCardEdits
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+
+  const { error } = await supabase
+    .from("prayer_requests")
+    .update({
+      title: edits.title,
+      description: edits.description,
+      prayer_points: edits.prayerPoints,
+    })
+    .eq("id", prayerId);
+
+  if (error) throw error;
 }
 
 export async function incrementPrayerCount(prayerId: string): Promise<number> {

@@ -13,6 +13,7 @@ import {
   fetchPrayerRequests,
   incrementPrayerCount,
   insertPrayerRequest,
+  updatePrayerRequest,
 } from "@/lib/prayers";
 import type { NewPrayerRequest, PrayerCardEdits, PrayerRequest } from "@/types";
 
@@ -26,8 +27,12 @@ interface PrayerContextValue {
   loading: boolean;
   error: string | null;
   addPrayerRequest: (request: NewPrayerRequest) => Promise<void>;
-  /** Local-only edit (no persistence yet — permissions/DB come later). */
-  updatePrayerLocal: (prayerId: string, edits: PrayerCardEdits) => void;
+  /**
+   * Save an edit to a prayer. With Supabase this persists for everyone (RLS
+   * restricts writes to approvers/admins); without Supabase it updates locally
+   * only. Updates local state optimistically either way.
+   */
+  savePrayerEdits: (prayerId: string, edits: PrayerCardEdits) => Promise<void>;
   recordPrayer: (prayerId: string) => Promise<void>;
   getPrayerCount: (prayerId: string) => number;
   refreshPrayers: () => Promise<void>;
@@ -74,8 +79,10 @@ export function PrayerProvider({ children }: { children: ReactNode }) {
     setPrayerCounts((prev) => ({ ...prev, [newPrayer.id]: 0 }));
   }, []);
 
-  const updatePrayerLocal = useCallback(
-    (prayerId: string, edits: PrayerCardEdits) => {
+  const savePrayerEdits = useCallback(
+    async (prayerId: string, edits: PrayerCardEdits) => {
+      // Persist first (no-op + throws never in local mode); RLS gates who can write.
+      await updatePrayerRequest(prayerId, edits);
       setPrayers((prev) =>
         prev.map((p) => (p.id === prayerId ? { ...p, ...edits } : p))
       );
@@ -114,7 +121,7 @@ export function PrayerProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       addPrayerRequest,
-      updatePrayerLocal,
+      savePrayerEdits,
       recordPrayer,
       getPrayerCount,
       refreshPrayers: loadPrayers,
@@ -127,7 +134,7 @@ export function PrayerProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       addPrayerRequest,
-      updatePrayerLocal,
+      savePrayerEdits,
       recordPrayer,
       getPrayerCount,
       loadPrayers,

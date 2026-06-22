@@ -81,7 +81,11 @@ export default function WeeklyPrayerFocus({
                 : "scale-100 translate-y-0 opacity-100"
             }`}
           >
+            {/* Key by prayer.id so the card REMOUNTS when the next request
+                rolls in — otherwise the reused instance keeps its "Prayed!"
+                state and the new card is stuck as already prayed. */}
             <PrayerCard
+              key={prayer.id}
               prayer={prayer}
               requireConfirm
               onPrayed={() => handlePrayed(category.slug, prayer.id)}

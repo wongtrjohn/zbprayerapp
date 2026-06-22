@@ -53,15 +53,21 @@ function clean(s: string): string {
 }
 
 /**
- * Map a bulletin section heading to one of our three filters. Order matters:
- * the church's third section rotates (Our World / Our Denomination / Missions),
- * so we match the broader-world synonyms first, then people, then church.
+ * Map a bulletin section heading to a filter (and optional sub-filter). Order
+ * matters — check the specific "denomination" rule before the generic "church"
+ * one. "Our Denomination" is filed under Our Church as a sub-filter.
  */
-export function headingToCategory(heading: string): CategorySlug | null {
+export function mapHeading(
+  heading: string
+): { category: CategorySlug; subcategory?: string } | null {
   const h = heading.toLowerCase();
-  if (/world|denomination|mission|nation|partner/.test(h)) return "our-world";
-  if (/people|member|congregation|flock/.test(h)) return "our-people";
-  if (/church|home/.test(h)) return "our-church";
+  if (/denomination|synod|presbytery/.test(h))
+    return { category: "our-church", subcategory: "our-denomination" };
+  if (/people|member|congregation|flock/.test(h))
+    return { category: "our-people" };
+  if (/world|mission|nation|partner|overseas|foreign/.test(h))
+    return { category: "our-world", subcategory: "mission-partners" };
+  if (/church|home/.test(h)) return { category: "our-church" };
   return null;
 }
 
@@ -104,7 +110,7 @@ export async function fetchBulletinPrayerPoints(
   const weekOf = singaporeDate();
   const items: ScrapedPrayerPoint[] = [];
   const seen = new Set<string>();
-  let category: CategorySlug | null = null;
+  let section: { category: CategorySlug; subcategory?: string } | null = null;
 
   // Walk <h4> headings and <p> items in document order.
   const re =
@@ -112,10 +118,10 @@ export async function fetchBulletinPrayerPoints(
   let m: RegExpExecArray | null;
   while ((m = re.exec(region))) {
     if (m[1] !== undefined) {
-      category = headingToCategory(clean(m[1]));
+      section = mapHeading(clean(m[1]));
       continue;
     }
-    if (!category) continue;
+    if (!section) continue;
 
     const inner = m[2];
     const strongMatch = inner.match(/<strong>([\s\S]*?)<\/strong>/i);
@@ -127,13 +133,14 @@ export async function fetchBulletinPrayerPoints(
     if (!title && description) title = description.split(/[.!?]/)[0].slice(0, 80);
     if (!title && !description) continue;
 
-    const key = `${category}::${title}`;
+    const key = `${section.category}::${title}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
     items.push({
       title,
-      category,
+      category: section.category,
+      subcategory: section.subcategory,
       description,
       prayerPoints: [],
       weekOf,

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { usePrayer } from "@/context/PrayerContext";
+import { useAuth } from "@/context/AuthContext";
 import { getCategory, getSubcategoryLabel } from "@/data/categories";
 import type { PrayerRequest } from "@/types";
 
@@ -38,13 +39,16 @@ export default function PrayerCard({
   requireConfirm = false,
   onPrayed,
 }: PrayerCardProps) {
-  const { recordPrayer, getPrayerCount, updatePrayerLocal } = usePrayer();
+  const { recordPrayer, getPrayerCount, savePrayerEdits } = usePrayer();
+  const { isApprover } = useAuth();
   const [prayed, setPrayed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
-  // --- Edit state (local-only) ---
+  // --- Edit state (approver/admin only; persisted via Supabase) ---
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState(prayer.title);
   const [draftDescription, setDraftDescription] = useState(prayer.description);
   const [draftPoints, setDraftPoints] = useState(prayer.prayerPoints.join("\n"));
@@ -84,27 +88,38 @@ export default function PrayerCard({
     setEditing(true);
   };
 
-  const saveEdit = () => {
-    updatePrayerLocal(prayer.id, {
-      title: draftTitle.trim() || prayer.title,
-      description: draftDescription.trim(),
-      prayerPoints: draftPoints
-        .split("\n")
-        .map((p) => p.trim())
-        .filter(Boolean),
-    });
-    setEditing(false);
+  const saveEdit = async () => {
+    if (saving) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      await savePrayerEdits(prayer.id, {
+        title: draftTitle.trim() || prayer.title,
+        description: draftDescription.trim(),
+        prayerPoints: draftPoints
+          .split("\n")
+          .map((p) => p.trim())
+          .filter(Boolean),
+      });
+      setEditing(false);
+    } catch (err) {
+      setEditError(
+        err instanceof Error ? err.message : "Failed to save changes"
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <article className="relative flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-800/50">
-      {/* Edit toggle */}
-      {!editing && (
+      {/* Edit toggle — approvers/admins only */}
+      {!editing && isApprover && (
         <button
           onClick={startEdit}
           className="absolute right-3 top-3 rounded-md p-1 text-slate-400 opacity-60 transition hover:bg-slate-100 hover:text-slate-600 hover:opacity-100 dark:hover:bg-slate-700"
           aria-label="Edit prayer"
-          title="Edit (local only)"
+          title="Edit prayer"
         >
           ✎
         </button>
@@ -191,19 +206,28 @@ export default function PrayerCard({
 
       {/* Footer */}
       {editing ? (
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            onClick={() => setEditing(false)}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={saveEdit}
-            className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-600"
-          >
-            Save
-          </button>
+        <div className="mt-4">
+          {editError && (
+            <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-300">
+              {editError}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setEditing(false)}
+              disabled={saving}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-60 dark:hover:bg-slate-700"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={saveEdit}
+              disabled={saving}
+              className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-60"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="mt-auto flex items-end justify-between gap-3 pt-4">

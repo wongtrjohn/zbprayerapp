@@ -37,6 +37,7 @@ export const CATEGORIES: Category[] = [
       { slug: "tuition-ministry", label: "Tuition Ministry" },
       { slug: "terusan-ministry", label: "Terusan Ministry" },
       { slug: "events", label: "Events" },
+      { slug: "our-denomination", label: "Our Denomination" },
     ],
   },
   {
