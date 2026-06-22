@@ -20,12 +20,26 @@ seed data in `src/data/prayerData.ts` when no Supabase env vars are present).
 
 ---
 
+## Location
+
+This project lives **outside OneDrive** to avoid file-sync locking issues:
+
+```
+C:\ClaudeLocal\zbprayerapp
+```
+
+Keep it on a local, non-synced path. If you ever move it, use a folder that
+OneDrive / Dropbox / Google Drive do **not** sync.
+
 ## Run locally
 
-```bash
-npm install
+Open **PowerShell** (or a terminal) and run:
+
+```powershell
+cd C:\ClaudeLocal\zbprayerapp
+npm install      # first time only
 npm run dev
-# open http://localhost:3000
+# then open http://localhost:3000
 ```
 
 No backend needed for local dev — it uses the seed data and tracks prayer
@@ -159,7 +173,16 @@ three categories via `headingToCategory()`). Then:
 
 ## Deploy to Vercel
 
-1. Push this folder to a GitHub repo.
+1. Push this folder to a GitHub repo (run from `C:\ClaudeLocal\zbprayerapp`):
+
+   ```powershell
+   cd C:\ClaudeLocal\zbprayerapp
+   git remote add origin https://github.com/<you>/zbprayerapp.git
+   git branch -M main
+   git push -u origin main
+   ```
+
+   `.env.local` is git-ignored, so your keys are never pushed.
 2. <https://vercel.com> → **Add New → Project** → import the repo. Vercel
    auto-detects Next.js; no build config needed.
 3. **Settings → Environment Variables**: add the same vars from `.env.local`
