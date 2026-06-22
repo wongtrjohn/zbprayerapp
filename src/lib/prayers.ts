@@ -64,7 +64,7 @@ export async function fetchPrayerRequests(): Promise<{
 
 export async function insertPrayerRequest(
   request: NewPrayerRequest
-): Promise<PrayerRequest> {
+): Promise<PrayerRequest | null> {
   const prayerPoints = request.prayerPoints
     .split("\n")
     .map((p) => p.trim())
@@ -84,25 +84,25 @@ export async function insertPrayerRequest(
     };
   }
 
-  const { data, error } = await supabase
-    .from("prayer_requests")
-    .insert({
-      title: request.title,
-      category: request.category,
-      subcategory: request.subcategory || null,
-      description: request.description,
-      prayer_points: prayerPoints,
-      source: "Community Request",
-      source_url: request.sourceUrl || null,
-      featured: false,
-      prayer_count: 0,
-      status: "pending", // goes into the moderation queue until an approver publishes it
-    })
-    .select()
-    .single();
+  // Submit into the moderation queue. We deliberately do NOT .select() the row
+  // back: it is created as `pending`, and the public read policy only exposes
+  // `approved` rows, so the submitter cannot read it yet. Returning null means
+  // "queued for approval — not visible until an approver publishes it".
+  const { error } = await supabase.from("prayer_requests").insert({
+    title: request.title,
+    category: request.category,
+    subcategory: request.subcategory || null,
+    description: request.description,
+    prayer_points: prayerPoints,
+    source: "Community Request",
+    source_url: request.sourceUrl || null,
+    featured: false,
+    prayer_count: 0,
+    status: "pending",
+  });
 
   if (error) throw error;
-  return rowToPrayer(data as PrayerRequestRow);
+  return null;
 }
 
 export async function incrementPrayerCount(prayerId: string): Promise<number> {

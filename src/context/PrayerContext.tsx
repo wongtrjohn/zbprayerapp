@@ -66,6 +66,10 @@ export function PrayerProvider({ children }: { children: ReactNode }) {
 
   const addPrayerRequest = useCallback(async (request: NewPrayerRequest) => {
     const newPrayer = await insertPrayerRequest(request);
+    // With Supabase, submissions are queued as `pending` (returns null) and stay
+    // hidden until an approver publishes them. Locally (no backend) the new
+    // prayer is returned and shown immediately.
+    if (!newPrayer) return;
     setPrayers((prev) => [newPrayer, ...prev]);
     setPrayerCounts((prev) => ({ ...prev, [newPrayer.id]: 0 }));
   }, []);

@@ -116,10 +116,19 @@ begin
 end;
 $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
+-- Creating a trigger on auth.users can require elevated privileges that some
+-- Supabase projects withhold. Wrap it so a failure here NEVER aborts the rest
+-- of this script (the app works without it — profiles can be created on first
+-- login instead). If it fails, you'll see a NOTICE, not an error.
+do $$
+begin
+  drop trigger if exists on_auth_user_created on auth.users;
+  create trigger on_auth_user_created
+    after insert on auth.users
+    for each row execute function public.handle_new_user();
+exception when others then
+  raise notice 'Skipped auth.users trigger (%). Profiles will be created on first login instead.', sqlerrm;
+end $$;
 
 -- Role helpers (SECURITY DEFINER so RLS on profiles doesn't block them).
 create or replace function public.is_approver()
